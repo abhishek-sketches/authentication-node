@@ -1,37 +1,60 @@
-# User Authentication
+# authentication-node
 
-This project provides user authentication functionality for web applications. It allows users to register and sign in securely, with protection for authorized routes. It ensures user privacy and data security while simplifying the authentication process.
+Express + Sequelize (PostgreSQL) user authentication API: sign up, sign in with
+a JWT stored in an httpOnly cookie, a protected route, and logout.
 
-## Table of Contents
+## Requirements
 
-- [Introduction](#introduction)
-- [Installation](#installation)
+- Node.js 20+
+- PostgreSQL
 
-## Introduction
-
-The User Authentication project provides a secure way to handle user authentication in web applications. It allows users to register, sign in, and access protected parts of the application. By using techniques like password hashing and token-based authentication, it ensures that user data is kept safe and authentication is efficient. Built with modern web technologies and the user-friendly Express.js framework, this project helps enhance the security and user experience of your web application.
-
-## Installation
-
-To install and run the User Authentication project, follow these steps:
-
-1. Install the project dependencies by running the following command:
+## Setup
 
 ```bash
-    npm install
+npm install
+cp .env.example .env      # then fill in the values (see below)
+npm run migrate           # creates/updates the tables
+npm start
 ```
 
-2. Create a database for the project and update the `config.json` file with your database credentials.
+### Environment variables
 
-3. Run the database migrations to set up the required tables by executing the following command:
+| Variable | Required | Description |
+| --- | --- | --- |
+| `JWT_SECRET` | yes | Signing key, at least 32 chars. Generate with `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` |
+| `DB_NAME`, `DB_USER` | yes | PostgreSQL database and user |
+| `DB_PASSWORD`, `DB_HOST`, `DB_PORT` | no | Default host `127.0.0.1`, port `5432` |
+| `DB_SSL` | no | `true` to require TLS to the database in production |
+| `PORT` | no | Default `8080` |
+| `JWT_EXPIRES_IN` | no | Token/cookie lifetime in seconds (default `3600`) |
+| `CORS_ORIGINS` | no | Comma-separated allowed browser origins. Empty = no CORS headers |
+| `AUTH_RATE_LIMIT` | no | Sign-in/sign-up attempts per IP per 15 min (default `20`) |
+| `TRUST_PROXY` | no | Set (e.g. `1`) when behind a reverse proxy so rate limiting sees client IPs |
 
-```bash
-    npx sequelize-cli db:migrate
-```
+Never commit `.env`. Database credentials are no longer stored in `config/config.json`; `config/config.js` reads the variables above, and `.sequelizerc` points `sequelize-cli` at it.
 
-4. Update the environment configuration file (`.env`) by adding the following variables:
+## Scripts
 
-- `PORT`: The port on which the application will run.
-- `JWT_SECRET`: The secret key used for signing JSON Web Tokens (JWTs).
+| Script | Description |
+| --- | --- |
+| `npm start` | Start the server |
+| `npm run dev` | Start with `node --watch` |
+| `npm run migrate` / `npm run migrate:undo` | Apply / revert the latest migration |
+| `npm test` | Integration tests (need PostgreSQL; run `NODE_ENV=test npm run migrate` first. Uses `<DB_NAME>_test`) |
 
-5. Start the application by running the following command:
+## API
+
+| Method | Path | Auth | Body | Notes |
+| --- | --- | --- | --- | --- |
+| GET | `/health` | no | | Liveness check |
+| POST | `/user/signup` | no | `{ email, password }` | Password 8-72 chars. `201` with `{ id, email, createdAt }`; `409` if taken |
+| POST | `/user/signin` | no | `{ email, password }` | Sets `token` cookie; `401` with one generic message for any bad credential |
+| POST | `/user/logout` | no | | Clears the cookie (was `GET`; changed to avoid cross-site logout) |
+| GET | `/user/get-all-user` | cookie | | Lists `{ id, email, createdAt }` |
+
+## Security notes
+
+- Passwords hashed with bcrypt (12 rounds); hashes are never returned by the API.
+- JWTs are HS256-only, expire, and are sent in an httpOnly, `SameSite=Strict` cookie (`Secure` when `NODE_ENV=production`).
+- `helmet`, JSON body size limit, schema validation (zod), rate limiting on sign-in/sign-up, opt-in CORS.
+- `npm audit` reports a moderate advisory for `uuid` via `sequelize` 6. It only affects `uuid` v3/v5/v6 called with a caller-supplied buffer, which Sequelize does not do; no non-breaking fix exists.
